@@ -110,3 +110,44 @@ def combine(videos: list[bytes], audio: bytes) -> bytes:
         output.run()
 
         return output_path.read_bytes()
+        
+@app.function(
+    image=modal.Image.debian_slim().apt_install("ffmpeg").pip_install("ffmpeg-python")
+)
+def combine(videos: list[bytes], audio: bytes) -> bytes:
+    import tempfile
+
+    import ffmpeg
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # write out video inputs to files
+        video_paths = []
+        for i, chunk in enumerate(videos):
+            path = Path(tmpdir) / f"chunk{i}.mp4"
+            path.write_bytes(chunk)
+            video_paths.append(path)
+
+        # concatenate video inputs together
+        video_inputs = [ffmpeg.input(video_path) for video_path in video_paths]
+        video_concat = ffmpeg.concat(*video_inputs, v=1, a=0).node
+
+        # write audio to file
+        audio_path = Path(tmpdir) / "audio.mp3"
+        audio_path.write_bytes(audio)
+
+        # combine audio with concatenated video
+        audio_input = ffmpeg.input(str(audio_path))
+        output_path = Path(tmpdir) / "output.mp4"
+        output = ffmpeg.output(
+            video_concat[0],
+            audio_input,
+            str(output_path),
+            vcodec="libx264",
+            acodec="aac",
+            shortest=None,
+        )
+
+        # execute pipeline
+        output.run()
+
+        return output_path.read_bytes()
